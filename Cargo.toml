@@ -1,0 +1,12 @@
+[package]
+name = "qnap-key-extract"
+version = "0.1.0"
+edition = "2021"
+description = "Extract LUKS encryption keys from QNAP .key files, DOM images, or plain passwords"
+
+[dependencies]
+md-5 = "0.10"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 2

@@ -1,0 +1,100 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test --release
+      - run: strip target/release/qnap-key-extract
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qnap-key-extract-x86_64-unknown-linux-gnu
+          path: target/release/qnap-key-extract
+
+  linux-aarch64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test --release
+      - run: strip target/release/qnap-key-extract
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qnap-key-extract-aarch64-unknown-linux-gnu
+          path: target/release/qnap-key-extract
+
+  windows-x86_64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qnap-key-extract-x86_64-pc-windows-msvc
+          path: target/release/qnap-key-extract.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-x86_64, linux-aarch64, windows-x86_64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package Linux x86_64
+        run: |
+          mkdir -p release
+          cp artifacts/qnap-key-extract-x86_64-unknown-linux-gnu/qnap-key-extract \
+            release/qnap-key-extract
+          cd release
+          tar czf ../qnap-key-extract-x86_64-unknown-linux-gnu.tar.gz qnap-key-extract
+          rm qnap-key-extract
+          cd ..
+
+      - name: Package Linux aarch64
+        run: |
+          cp artifacts/qnap-key-extract-aarch64-unknown-linux-gnu/qnap-key-extract \
+            release/qnap-key-extract
+          cd release
+          tar czf ../qnap-key-extract-aarch64-unknown-linux-gnu.tar.gz qnap-key-extract
+          rm qnap-key-extract
+          cd ..
+
+      - name: Package Windows x86_64
+        run: |
+          cp artifacts/qnap-key-extract-x86_64-pc-windows-msvc/qnap-key-extract.exe \
+            release/qnap-key-extract.exe
+          cd release
+          zip -r ../qnap-key-extract-x86_64-pc-windows-msvc.zip qnap-key-extract.exe
+          cd ..
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            qnap-key-extract-x86_64-unknown-linux-gnu.tar.gz
+            qnap-key-extract-aarch64-unknown-linux-gnu.tar.gz
+            qnap-key-extract-x86_64-pc-windows-msvc.zip
+          generate_release_notes: true
