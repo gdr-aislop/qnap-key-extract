@@ -7,11 +7,70 @@ Odzyskaj **klucze szyfrowania LUKS dla zaszyfrowanych woluminów QNAP QTS** z:
 - zwykłych **haseł** (konwersja na hasło LUKS, którego oczekuje cryptsetup),
 - **fabrycznego klucza domyślnego** na stałe wbudowanego w QTS.
 
-Wszystko zaimplementowano od zera w czystym Ruście. Wiedza o formatach została
-odtworzona inżynierią wsteczną z QTS 5.2 `libuLinux_Storage.so`
-(`Keyfile_to_Keystring`, `decode_user_key`, `Volume_Generate_Encrypt_Key`,
-pomocnicze ENCK/UKF we flashu) i zweryfikowana **różnicowo względem oryginalnych
-binarek QNAP** wyodrębnionych z firmware'u (patrz *Walidacja* poniżej).
+## Użycie
+
+```
+qnap-key-extract keyfile <plik.key>   # dekoduj 256/512-bajtowy plik .key
+qnap-key-extract dom <obraz.dd>       # skanuj obraz DOM w poszukiwaniu ENCK=
+qnap-key-extract password <haslo>     # konwertuj hasło na hasło LUKS
+qnap-key-extract default-key          # hasło LUKS dla fabrycznego klucza
+qnap-key-extract auto <sciezka>       # auto-detekcja pliku klucza vs obrazu
+```
+
+`-` czyta ze standardowego wejścia, np.:
+
+```
+dd if=/dev/sdx6 | qnap-key-extract dom -
+```
+
+## Uzyskanie pliku `.key`
+
+### Z interfejsu WWW QTS
+
+1. Przejdź do **Storage & Snapshots → Storage → Disks/VJBOD**
+2. Wybierz zaszyfrowany wolumin
+3. Kliknij **Management → Export Encryption Key**
+4. Zapisz pobrany plik `.key`
+
+Plik ma 256 bajtów (lub 512 dla dłuższych haseł). QTS 5.x może również
+wyeksportować plik tekstowy zawierający bezpośrednio gotowe hasło LUKS
+(oba formaty są obsługiwane automatycznie przez podkomendę `auto`).
+
+### Zrzut partycji DOM / config-flash
+
+Jeśli przy tworzeniu woluminu zaznaczono „Save encryption key", hasło LUKS
+jest zapisane w partycji DOM lub config flash. Wykonaj zrzut poleceniem:
+
+```
+dd if=/dev/sdX of=dom.img bs=1M
+```
+
+Następnie przeskanuj: `qnap-key-extract dom dom.img`. Partycja DOM to zwykle
+jedna z `/dev/sda`–`/dev/sde` — często mały obszar (< 64 MB) w pobliżu końca
+dysku. W QTS 5 istotne dane są również zdublowane do
+`/etc/.sm_v2_storage_runtime_info` (plik w formacie INI, czytelny bez dd).
+
+### Odblokowanie woluminu
+
+Każdy znaleziony kandydat zawiera gotowe hasło LUKS:
+
+```
+# zapisz hasło kandydata w pliku BEZ znaku nowej linii:
+printf '%s' '$1$YCCaQNAP$fCKsRIY9UQxokLHp26tJO1' > /tmp/key
+cryptsetup luksOpen /dev/mapper/cachedev1 myvol --key-file=/tmp/key
+mount -t ext4 /dev/mapper/myvol /mnt
+```
+
+### Fabryczny klucz domyślny
+
+Kreator szyfrowania QTS ma opcję „use default key". Hasło jest na stałe
+wbudowane w `libuLinux_Storage.so`:
+
+```
+QnapBenjamin2012  ->  $1$YCCaQNAP$z5eCw.l3Yw1I7H2P3pll2/
+```
+
+Wypróbuj to najpierw na każdym woluminie, do którego nie znasz hasła.
 
 ## Jak działa szyfrowanie woluminów QNAP
 
@@ -34,33 +93,6 @@ ze stałą solą `YCCaQNAP`:
 ```
 openssl passwd -1 -salt YCCaQNAP 'TWOJE_HASLO'
 ```
-
-## Uzyskanie pliku `.key`
-
-**Z interfejsu WWW QTS:**
-
-1. Przejdź do **Storage & Snapshots → Storage → Disks/VJBOD**
-2. Wybierz zaszyfrowany wolumin
-3. Kliknij **Management → Export Encryption Key**
-4. Zapisz pobrany plik `.key`
-
-Plik ma 256 bajtów (lub 512 dla dłuższych haseł). QTS 5.x może również
-wyeksportować plik tekstowy zawierający bezpośrednio gotowe hasło LUKS
-(oba formaty są obsługiwane automatycznie przez podkomendę `auto`).
-
-**Zrzut partycji DOM / config-flash:**
-
-Jeśli przy tworzeniu woluminu zaznaczono „Save encryption key", hasło LUKS
-jest zapisane w partycji DOM lub config flash. Wykonaj zrzut poleceniem:
-
-```
-dd if=/dev/sdX of=dom.img bs=1M
-```
-
-Następnie przeskanuj: `qnap-key-extract dom dom.img`. Partycja DOM to zwykle
-jedna z `/dev/sda`–`/dev/sde` — często mały obszar (< 64 MB) w pobliżu końca
-dysku. W QTS 5 istotne dane są również zdublowane do
-`/etc/.sm_v2_storage_runtime_info` (plik w formacie INI, czytelny bez dd).
 
 ## Format pliku `.key` (`decode_user_key`)
 
@@ -101,44 +133,6 @@ flash DOM / config flash (oraz do `/etc/.sm_v2_storage_runtime_info` w sekcji
 Narzędzie skanuje cały obraz w poszukiwaniu wpisów `ENCK=` (wyświetlane są
 offsety) oraz bloków flag `UKF=` (`K` = klucz zapisany na DOM, `M` = tryb
 klucza głównego).
-
-## Użycie
-
-```
-qnap-key-extract keyfile <plik.key>   # dekoduj 256/512-bajtowy plik .key
-qnap-key-extract dom <obraz.dd>       # skanuj obraz DOM w poszukiwaniu ENCK=
-qnap-key-extract password <haslo>     # konwertuj hasło na hasło LUKS
-qnap-key-extract default-key          # hasło LUKS dla fabrycznego klucza
-qnap-key-extract auto <sciezka>       # auto-detekcja pliku klucza vs obrazu
-```
-
-`-` czyta ze standardowego wejścia, np.:
-
-```
-dd if=/dev/sdx6 | qnap-key-extract dom -
-```
-
-### Odblokowanie woluminu
-
-Każdy znaleziony kandydat zawiera gotowe hasło LUKS:
-
-```
-# zapisz hasło kandydata w pliku BEZ znaku nowej linii:
-printf '%s' '$1$YCCaQNAP$fCKsRIY9UQxokLHp26tJO1' > /tmp/key
-cryptsetup luksOpen /dev/mapper/cachedev1 myvol --key-file=/tmp/key
-mount -t ext4 /dev/mapper/myvol /mnt
-```
-
-### Fabryczny klucz domyślny
-
-Kreator szyfrowania QTS ma opcję „use default key". Hasło jest na stałe
-wbudowane w `libuLinux_Storage.so`:
-
-```
-QnapBenjamin2012  ->  $1$YCCaQNAP$z5eCw.l3Yw1I7H2P3pll2/
-```
-
-Wypróbuj to najpierw na każdym woluminie, do którego nie znasz hasła.
 
 ## Walidacja
 
