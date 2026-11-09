@@ -7,11 +7,72 @@ Recover **LUKS encryption keys for QNAP QTS encrypted volumes** from:
 - plain **passwords** (wrap them into the passphrase cryptsetup expects),
 - the **factory default key** hardcoded in QTS.
 
-Everything is implemented from scratch in pure Rust. The format knowledge was
-reverse engineered from QTS 5.2 `libuLinux_Storage.so` (`Keyfile_to_Keystring`,
-`decode_user_key`, `Volume_Generate_Encrypt_Key`, the ENCK/UKF flash helpers)
-and validated **differentially against the genuine QNAP binaries** extracted
-from the firmware (see *Validation* below).
+## Usage
+
+```
+qnap-key-extract keyfile <file.key>   # decode a 256/512-byte .key blob
+qnap-key-extract dom <image.dd>       # scan a DOM/config image for ENCK=
+qnap-key-extract password <pw>        # wrap a password -> LUKS passphrase
+qnap-key-extract default-key          # passphrase of the built-in default key
+qnap-key-extract auto <path>          # auto-detect key file vs image
+```
+
+`-` reads stdin, e.g.:
+
+```
+dd if=/dev/sdx6 | qnap-key-extract dom -
+```
+
+
+## Obtaining the `.key` file
+
+### From the QTS web UI
+
+1. Go to **Storage & Snapshots → Storage → Disks/VJBOD**
+2. Select the encrypted volume
+3. Click **Management → Export Encryption Key**
+4. Save the downloaded `.key` file
+
+The file is 256 bytes (or 512 for longer passwords). QTS 5.x may also export
+a plain-text file containing the wrapped passphrase directly (both formats
+are handled automatically by the `auto` subcommand).
+
+### From a DOM / config-flash dump
+
+If "Save encryption key" was checked when the volume was created, the
+wrapped passphrase is embedded in a DOM partition or the config flash.
+Dump it with:
+
+```
+dd if=/dev/sdaX of=dom.img bs=1M
+```
+
+Then scan with `qnap-key-extract dom dom.img`. The DOM is usually one of
+`/dev/sda` through `/dev/sde` — often a small partition (< 64 MB) near the
+end of the disk. On QTS 5, the relevant data is also mirrored to
+`/etc/.sm_v2_storage_runtime_info` (an INI-like file readable without dd).
+
+### Unlocking a volume
+
+Each reported candidate includes a ready LUKS passphrase:
+
+```
+# put the candidate passphrase in a file WITHOUT a trailing newline:
+printf '%s' '$1$YCCaQNAP$fCKsRIY9UQxokLHp26tJO1' > /tmp/key
+cryptsetup luksOpen /dev/mapper/cachedev1 myvol --key-file=/tmp/key
+mount -t ext4 /dev/mapper/myvol /mnt
+```
+
+### The factory default key
+
+QTS's encryption wizard has a "use default key" option. The password is
+hardcoded in `libuLinux_Storage.so`:
+
+```
+QnapBenjamin2012  ->  $1$YCCaQNAP$z5eCw.l3Yw1I7H2P3pll2/
+```
+
+Try this first on any volume you cannot attribute a password to.
 
 ## How QNAP volume encryption works
 
@@ -34,34 +95,6 @@ hash with the fixed salt `YCCaQNAP`:
 ```
 openssl passwd -1 -salt YCCaQNAP 'YOUR_PASSWORD'
 ```
-
-## Obtaining the `.key` file
-
-**From the QTS web UI:**
-
-1. Go to **Storage & Snapshots → Storage → Disks/VJBOD**
-2. Select the encrypted volume
-3. Click **Management → Export Encryption Key**
-4. Save the downloaded `.key` file
-
-The file is 256 bytes (or 512 for longer passwords). QTS 5.x may also export
-a plain-text file containing the wrapped passphrase directly (both formats
-are handled automatically by the `auto` subcommand).
-
-**From a DOM / config-flash dump:**
-
-If "Save encryption key" was checked when the volume was created, the
-wrapped passphrase is embedded in a DOM partition or the config flash.
-Dump it with:
-
-```
-dd if=/dev/sdaX of=dom.img bs=1M
-```
-
-Then scan with `qnap-key-extract dom dom.img`. The DOM is usually one of
-`/dev/sda` through `/dev/sde` — often a small partition (< 64 MB) near the
-end of the disk. On QTS 5, the relevant data is also mirrored to
-`/etc/.sm_v2_storage_runtime_info` (an INI-like file readable without dd).
 
 ## The `.key` file format (`decode_user_key`)
 
@@ -101,44 +134,6 @@ config flash (also mirrored to `/etc/.sm_v2_storage_runtime_info` under
 
 The tool scans the whole image for `ENCK=` entries (offsets are printed) and
 `UKF=` key-flag blocks (`K` = key saved on DOM, `M` = master-key mode).
-
-## Usage
-
-```
-qnap-key-extract keyfile <file.key>   # decode a 256/512-byte .key blob
-qnap-key-extract dom <image.dd>       # scan a DOM/config image for ENCK=
-qnap-key-extract password <pw>        # wrap a password -> LUKS passphrase
-qnap-key-extract default-key          # passphrase of the built-in default key
-qnap-key-extract auto <path>          # auto-detect key file vs image
-```
-
-`-` reads stdin, e.g.:
-
-```
-dd if=/dev/sdx6 | qnap-key-extract dom -
-```
-
-### Unlocking a volume
-
-Each reported candidate includes a ready LUKS passphrase:
-
-```
-# put the candidate passphrase in a file WITHOUT a trailing newline:
-printf '%s' '$1$YCCaQNAP$fCKsRIY9UQxokLHp26tJO1' > /tmp/key
-cryptsetup luksOpen /dev/mapper/cachedev1 myvol --key-file=/tmp/key
-mount -t ext4 /dev/mapper/myvol /mnt
-```
-
-### The factory default key
-
-QTS's encryption wizard has a "use default key" option. The password is
-hardcoded in `libuLinux_Storage.so`:
-
-```
-QnapBenjamin2012  ->  $1$YCCaQNAP$z5eCw.l3Yw1I7H2P3pll2/
-```
-
-Try this first on any volume you cannot attribute a password to.
 
 ## Validation
 
