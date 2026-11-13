@@ -3,7 +3,7 @@
 Odzyskaj **klucze szyfrowania LUKS dla zaszyfrowanych woluminów QNAP QTS** z:
 
 - wyeksportowanych **plików `.key`** (256-bajtowe pliki pobrane z interfejsu WWW QTS),
-- **obrazów DOM / config-flash** (klucze automatycznego odblokowania zapisane opcją „Save encryption key"),
+- **obrazów dysków DOM / config-flash** (klucze automatycznego odblokowania zapisane opcją „Save encryption key"),
 - zwykłych **haseł** (konwersja na hasło LUKS, którego oczekuje cryptsetup),
 - **fabrycznego klucza domyślnego** na stałe wbudowanego w QTS.
 
